@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import datetime
 import os
 import random
 import requests
@@ -9,7 +10,13 @@ import subprocess
 import serial
 from threading import Thread
 
+import board
+from influxdb_client import InfluxDBClient, Point
+from influxdb_client.client.write_api import SYNCHRONOUS
 from prometheus_client import start_http_server, Gauge, Histogram
+import SafecastPy
+import notecard.notecard as notecard
+from periphery import Serial
 
 from bme280 import BME280
 from enviroplus import gas
@@ -22,6 +29,8 @@ import colorsys
 import ST7735
 from PIL import Image, ImageDraw, ImageFont
 from fonts.ttf import RobotoMedium as UserFont
+from pms5003 import PMS5003
+from adafruit_lc709203f import LC709203F, PackSize
 
 try:
     from smbus2 import SMBus
@@ -130,6 +139,13 @@ try:
 except serial.serialutil.SerialException:
     logging.warning("Failed to initialise PMS5003.")
 
+battery_sensor = False
+try:
+    sensor = LC709203F(board.I2C())
+    battery_sensor = True
+except ValueError:
+    pass
+
 TEMPERATURE = Gauge('temperature','Temperature measured (*C)')
 PRESSURE = Gauge('pressure','Pressure measured (hPa)')
 HUMIDITY = Gauge('humidity','Relative humidity measured (%)')
@@ -141,6 +157,9 @@ PROXIMITY = Gauge('proximity', 'proximity, with larger numbers being closer prox
 PM1 = Gauge('PM1', 'Particulate Matter of diameter less than 1 micron. Measured in micrograms per cubic metre (ug/m3)')
 PM25 = Gauge('PM25', 'Particulate Matter of diameter less than 2.5 microns. Measured in micrograms per cubic metre (ug/m3)')
 PM10 = Gauge('PM10', 'Particulate Matter of diameter less than 10 microns. Measured in micrograms per cubic metre (ug/m3)')
+CPU_TEMPERATURE = Gauge('cpu_temperature','CPU temperature measured (*C)')
+BATTERY_VOLTAGE = Gauge('battery_voltage','Voltage of the battery (Volts)')
+BATTERY_PERCENTAGE = Gauge('battery_percentage','Percentage of the battery remaining (%)')
 
 OXIDISING_HIST = Histogram('oxidising_measurements', 'Histogram of oxidising measurements', buckets=(0, 10000, 15000, 20000, 25000, 30000, 35000, 40000, 45000, 50000, 55000, 60000, 65000, 70000, 75000, 80000, 85000, 90000, 100000))
 REDUCING_HIST = Histogram('reducing_measurements', 'Histogram of reducing measurements', buckets=(0, 100000, 200000, 300000, 400000, 500000, 600000, 700000, 800000, 900000, 1000000, 1100000, 1200000, 1300000, 1400000, 1500000))
@@ -172,12 +191,52 @@ def reset_i2c():
     time.sleep(2)
 
 
-# Get the temperature of the CPU for compensation
+# Setup Safecast
+SAFECAST_TIME_BETWEEN_POSTS = int(os.getenv('SAFECAST_TIME_BETWEEN_POSTS', '300'))
+SAFECAST_DEV_MODE = os.getenv('SAFECAST_DEV_MODE', 'false') == 'true'
+SAFECAST_API_KEY = os.getenv('SAFECAST_API_KEY', '')
+SAFECAST_API_KEY_DEV = os.getenv('SAFECAST_API_KEY_DEV', '')
+SAFECAST_LATITUDE = os.getenv('SAFECAST_LATITUDE', '')
+SAFECAST_LONGITUDE = os.getenv('SAFECAST_LONGITUDE', '')
+SAFECAST_DEVICE_ID = int(os.getenv('SAFECAST_DEVICE_ID', '226'))
+SAFECAST_LOCATION_NAME = os.getenv('SAFECAST_LOCATION_NAME', '')
+if SAFECAST_DEV_MODE:
+    # Post to the dev API
+    safecast = SafecastPy.SafecastPy(
+        api_key=SAFECAST_API_KEY_DEV,
+        api_url=SafecastPy.DEVELOPMENT_API_URL,
+    )
+else:
+    # Post to the production API
+    safecast = SafecastPy.SafecastPy(
+        api_key=SAFECAST_API_KEY,
+    )
+
+# Setup Blues Notecard
+NOTECARD_TIME_BETWEEN_POSTS = int(os.getenv('NOTECARD_TIME_BETWEEN_POSTS', '600'))
+
+# Setup LC709203F battery monitor
+if battery_sensor:
+    if DEBUG:
+        logging.info('## LC709203F battery monitor ##')
+    try:
+        if DEBUG:
+            logging.info("Sensor IC version: {}".format(hex(sensor.ic_version)))
+        # Set the battery pack size to 3000 mAh
+        sensor.pack_size = PackSize.MAH3000
+        sensor.init_RSOC()
+        if DEBUG:
+            logging.info("Battery size: {}".format(PackSize.string[sensor.pack_sizes]))
+    except RuntimeError as exception:
+        logging.error("Failed to read sensor with error: {}".format(exception))
+        logging.info("Try setting the I2C clock speed to 10000Hz")
+
 def get_cpu_temperature():
+    """Get the temperature from the Raspberry Pi CPU"""
     with open("/sys/class/thermal/thermal_zone0/temp", "r") as f:
         temp = f.read()
         temp = int(temp) / 1000.0
-    return temp
+        CPU_TEMPERATURE.set(temp)
 
 def get_temperature(factor_usr):
     """Get temperature from the weather sensor"""
@@ -220,7 +279,7 @@ def get_pressure():
         logging.error("Could not get pressure readings. Resetting i2c.")
         reset_i2c()
 
-def get_humidity():
+def get_humidity(humidity_compensation):
     """Get humidity from the weather sensor"""
     try:
         humidity = bme280.get_humidity()
@@ -233,7 +292,6 @@ def get_gas():
     """Get all gas readings"""
     try:
         readings = gas.read_all()
-
         OXIDISING.set(readings.oxidising)
         OXIDISING_HIST.observe(readings.oxidising)
 
@@ -275,6 +333,18 @@ def get_particulates():
         PM25_HIST.observe(pms_data.pm_ug_per_m3(2.5) - pms_data.pm_ug_per_m3(1.0))
         PM10_HIST.observe(pms_data.pm_ug_per_m3(10) - pms_data.pm_ug_per_m3(2.5))
 
+def get_battery():
+    """Get the battery voltage and percentage left"""
+    try:
+        voltage_reading = sensor.cell_voltage
+        percentage_reading = sensor.cell_percent
+        BATTERY_VOLTAGE.set(voltage_reading)
+        BATTERY_PERCENTAGE.set(percentage_reading)
+        if DEBUG:
+            logging.info("Battery: {} Volts / {} %".format(sensor.cell_voltage, sensor.cell_percent))
+    except (RuntimeError, OSError) as exception:
+        logging.warning("Failed to read battery monitor with error: {}".format(exception))
+
 def collect_all_data():
     """Collects all the data currently set"""
     sensor_data = {}
@@ -289,6 +359,9 @@ def collect_all_data():
     sensor_data['pm1'] = PM1.collect()[0].samples[0].value
     sensor_data['pm25'] = PM25.collect()[0].samples[0].value
     sensor_data['pm10'] = PM10.collect()[0].samples[0].value
+    sensor_data['cpu_temperature'] = CPU_TEMPERATURE.collect()[0].samples[0].value
+    sensor_data['battery_voltage'] = BATTERY_VOLTAGE.collect()[0].samples[0].value
+    sensor_data['battery_percentage'] = BATTERY_PERCENTAGE.collect()[0].samples[0].value
     return sensor_data
 
 def write_to_lcd():
@@ -406,6 +479,140 @@ def post_to_luftdaten():
         except Exception as exception:
             logging.warning('Exception sending to Luftdaten: {}'.format(exception))
 
+def post_to_safecast():
+    """Post all sensor data to Safecast.org"""
+    while True:
+        time.sleep(SAFECAST_TIME_BETWEEN_POSTS)
+        sensor_data = collect_all_data()
+        try:
+            measurement = safecast.add_measurement(json={
+                'latitude': SAFECAST_LATITUDE,
+                'longitude': SAFECAST_LONGITUDE,
+                'value': sensor_data['pm1'],
+                'unit': 'PM1 ug/m3',
+                'captured_at': datetime.datetime.now().astimezone().isoformat(),
+                'device_id': SAFECAST_DEVICE_ID,  # Enviro+
+                'location_name': SAFECAST_LOCATION_NAME,
+                'height': None
+            })
+            if DEBUG:
+                logging.info('Safecast PM1 measurement created, id: {}'.format(measurement['id']))
+
+            measurement = safecast.add_measurement(json={
+                'latitude': SAFECAST_LATITUDE,
+                'longitude': SAFECAST_LONGITUDE,
+                'value': sensor_data['pm25'],
+                'unit': 'PM2.5 ug/m3',
+                'captured_at': datetime.datetime.now().astimezone().isoformat(),
+                'device_id': SAFECAST_DEVICE_ID,  # Enviro+
+                'location_name': SAFECAST_LOCATION_NAME,
+                'height': None
+            })
+            if DEBUG:
+                logging.info('Safecast PM2.5 measurement created, id: {}'.format(measurement['id']))
+
+            measurement = safecast.add_measurement(json={
+                'latitude': SAFECAST_LATITUDE,
+                'longitude': SAFECAST_LONGITUDE,
+                'value': sensor_data['pm10'],
+                'unit': 'PM10 ug/m3',
+                'captured_at': datetime.datetime.now().astimezone().isoformat(),
+                'device_id': SAFECAST_DEVICE_ID,  # Enviro+
+                'location_name': SAFECAST_LOCATION_NAME,
+                'height': None
+            })
+            if DEBUG:
+                logging.info('Safecast PM10 measurement created, id: {}'.format(measurement['id']))
+
+            measurement = safecast.add_measurement(json={
+                'latitude': SAFECAST_LATITUDE,
+                'longitude': SAFECAST_LONGITUDE,
+                'value': sensor_data['temperature'],
+                'unit': 'Temperature C',
+                'captured_at': datetime.datetime.now().astimezone().isoformat(),
+                'device_id': SAFECAST_DEVICE_ID,  # Enviro+
+                'location_name': SAFECAST_LOCATION_NAME,
+                'height': None
+            })
+            if DEBUG:
+                logging.info('Safecast Temperature measurement created, id: {}'.format(measurement['id']))
+
+            measurement = safecast.add_measurement(json={
+                'latitude': SAFECAST_LATITUDE,
+                'longitude': SAFECAST_LONGITUDE,
+                'value': sensor_data['humidity'],
+                'unit': 'Humidity %',
+                'captured_at': datetime.datetime.now().astimezone().isoformat(),
+                'device_id': SAFECAST_DEVICE_ID,  # Enviro+
+                'location_name': SAFECAST_LOCATION_NAME,
+                'height': None
+            })
+            if DEBUG:
+                logging.info('Safecast Humidity measurement created, id: {}'.format(measurement['id']))
+
+            measurement = safecast.add_measurement(json={
+                'latitude': SAFECAST_LATITUDE,
+                'longitude': SAFECAST_LONGITUDE,
+                'value': sensor_data['cpu_temperature'],
+                'unit': 'CPU temperature C',
+                'captured_at': datetime.datetime.now().astimezone().isoformat(),
+                'device_id': SAFECAST_DEVICE_ID,  # Enviro+
+                'location_name': SAFECAST_LOCATION_NAME,
+                'height': None
+            })
+            if DEBUG:
+                logging.info('Safecast CPU temperature measurement created, id: {}'.format(measurement['id']))
+        except Exception as exception:
+            logging.warning('Exception sending to Safecast: {}'.format(exception))
+
+def post_to_notehub():
+    """Post all sensor data to Notehub.io"""
+    while True:
+        time.sleep(NOTECARD_TIME_BETWEEN_POSTS)
+        try:
+            notecard_port = Serial('/dev/ttyACM0', 9600)
+            card = notecard.OpenSerial(notecard_port)
+            # Setup data
+            sensor_data = collect_all_data()
+            for sensor_data_key in sensor_data:
+                data_unit = None
+                if 'temperature' in sensor_data_key:
+                    data_unit = '°C'
+                elif 'humidity' in sensor_data_key:
+                    data_unit = '%RH'
+                elif 'pressure' in sensor_data_key:
+                    data_unit = 'hPa'
+                elif 'oxidising' in sensor_data_key or 'reducing' in sensor_data_key or 'nh3' in sensor_data_key:
+                    data_unit = 'kOhms'
+                elif 'proximity' in sensor_data_key:
+                    pass
+                elif 'lux' in sensor_data_key:
+                    data_unit = 'Lux'
+                elif 'pm' in sensor_data_key:
+                    data_unit = 'ug/m3'
+                elif 'battery_voltage' in sensor_data_key:
+                    data_unit = 'V'
+                elif 'battery_percentage' in sensor_data_key:
+                    data_unit = '%'
+                request = {'req':'note.add','body':{sensor_data_key:sensor_data[sensor_data_key], 'units':data_unit}}
+                try:
+                    response = card.Transaction(request)
+                    if DEBUG:
+                        logging.info('Notecard response: {}'.format(response))
+                except Exception as exception:
+                    logging.warning('Notecard data setup error: {}'.format(exception))
+            # Sync data with Notehub
+            request = {'req':'service.sync'}
+            try:
+                response = card.Transaction(request)
+                if DEBUG:
+                    logging.info('Notecard response: {}'.format(response))
+            except Exception as exception:
+                logging.warning('Notecard sync error: {}'.format(exception))
+        except Exception as exception:
+            # TODO: Do we need to reboot here? Or is this missing tty temporary?
+            logging.warning('Error opening notecard: {}'.format(exception))
+
 def get_serial_number():
     """Get Raspberry Pi serial number to use as LUFTDATEN_SENSOR_UID"""
     with open('/proc/cpuinfo', 'r') as f:
@@ -425,11 +632,14 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("-b", "--bind", metavar='ADDRESS', default='0.0.0.0', help="Specify alternate bind address [default: 0.0.0.0]")
     parser.add_argument("-p", "--port", metavar='PORT', default=8000, type=int, help="Specify alternate port [default: 8000]")
-    parser.add_argument("-f", "--factor", metavar='FACTOR', type=float, help="The compensation factor to get better temperature results when the Enviro+ pHAT is too close to the Raspberry Pi board")
-    parser.add_argument("-e", "--enviro", metavar='ENVIRO', type=str_to_bool, help="Device is an Enviro (not Enviro+) so don't fetch data from gas and particulate sensors as they don't exist")
-    parser.add_argument("-d", "--debug", metavar='DEBUG', type=str_to_bool, help="Turns on more verbose logging, showing sensor output and post responses [default: false]")
-    parser.add_argument("-i", "--influxdb", metavar='INFLUXDB', type=str_to_bool, default='false', help="Post sensor data to InfluxDB [default: false]")
-    parser.add_argument("-l", "--luftdaten", metavar='LUFTDATEN', type=str_to_bool, default='false', help="Post sensor data to Luftdaten [default: false]")
+    parser.add_argument("-e", "--enviro", metavar='ENVIRO', type=str_to_bool, default='false', help="Device is an Enviro (not Enviro+) so don't fetch data from particulate sensor as it doesn't exist [default: false]")
+    parser.add_argument("-t", "--temp", metavar='TEMPERATURE', type=float, help="The temperature compensation value to get better temperature results when the Enviro+ pHAT is too close to the Raspberry Pi board")
+    parser.add_argument("-u", "--humid", metavar='HUMIDITY', type=float, help="The humidity compensation value to get better humidity results when the Enviro+ pHAT is too close to the Raspberry Pi board")
+    parser.add_argument("-d", "--debug", metavar='DEBUG', type=str_to_bool, help="Turns on more vebose logging, showing sensor output and post responses [default: false]")
+    parser.add_argument("-i", "--influxdb", metavar='INFLUXDB', type=str_to_bool, default='false', help="Post sensor data to InfluxDB Cloud [default: false]")
+    parser.add_argument("-l", "--luftdaten", metavar='LUFTDATEN', type=str_to_bool, default='false', help="Post sensor data to Luftdaten.info [default: false]")
+    parser.add_argument("-s", "--safecast", metavar='SAFECAST', type=str_to_bool, default='false', help="Post sensor data to Safecast.org [default: false]")
+    parser.add_argument("-n", "--notecard", metavar='NOTECARD', type=str_to_bool, default='false', help="Post sensor data to Notehub.io via Notecard LTE [default: false]")
     args = parser.parse_args()
 
     # Start up the server to expose the metrics.
@@ -439,8 +649,11 @@ if __name__ == '__main__':
     if args.debug:
         DEBUG = True
 
-    if args.factor:
-        logging.info("Using compensating algorithm (factor={}) to account for heat leakage from Raspberry Pi board".format(args.factor))
+    if args.temp:
+        logging.info("Using temperature compensation, reducing the output value by {}° to account for heat leakage from Raspberry Pi board".format(args.temp))
+
+    if args.humid:
+        logging.info("Using humidity compensation, increasing the output value by {}% to account for heat leakage from Raspberry Pi board".format(args.humid))
 
     if args.influxdb:
         # Post to InfluxDB in another thread
@@ -461,10 +674,11 @@ if __name__ == '__main__':
     logging.info("Listening on http://{}:{}".format(args.bind, args.port))
 
     while True:
-        get_temperature(args.factor)
+        get_temperature(args.temp)
+        get_humidity(args.humid)
         get_pressure()
-        get_humidity()
         get_light()
+        get_gas()
         if not args.enviro:
             get_gas()
             # get_particulates()
