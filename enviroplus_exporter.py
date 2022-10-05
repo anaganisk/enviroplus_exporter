@@ -18,6 +18,10 @@ from pms5003 import PMS5003, ReadTimeoutError as pmsReadTimeoutError, SerialTime
 from influxdb_client import InfluxDBClient, Point
 from influxdb_client.client.write_api import SYNCHRONOUS
 
+import colorsys
+import ST7735
+from PIL import Image, ImageDraw, ImageFont
+from fonts.ttf import RobotoMedium as UserFont
 
 try:
     from smbus2 import SMBus
@@ -48,6 +52,79 @@ DEBUG = os.getenv('DEBUG', 'false') == 'true'
 
 bus = SMBus(1)
 bme280 = BME280(i2c_dev=bus)
+
+st7735 = ST7735.ST7735(
+    port=0,
+    cs=1,
+    dc=9,
+    backlight=12,
+    rotation=270,
+    spi_speed_hz=10000000
+)
+
+# Initialize display
+st7735 = ST7735.ST7735(
+    port=0,
+    cs=1,
+    dc=9,
+    backlight=12,
+    rotation=270,
+    spi_speed_hz=10000000
+)
+
+# Initialize display
+st7735.begin()
+
+WIDTH = st7735.width
+HEIGHT = st7735.height
+
+# Set up canvas and font
+img = Image.new('RGB', (WIDTH, HEIGHT), color=(0, 0, 0))
+draw = ImageDraw.Draw(img)
+font_size_small = 10
+font_size_large = 20
+font = ImageFont.truetype(UserFont, font_size_large)
+smallfont = ImageFont.truetype(UserFont, font_size_small)
+x_offset = 2
+y_offset = 2
+
+message = ""
+
+# The position of the top bar
+top_pos = 25
+
+
+# Define your own warning limits
+# The limits definition follows the order of the variables array
+# Example limits explanation for temperature:
+# [4,18,28,35] means
+# [-273.15 .. 4] -> Dangerously Low
+# (4 .. 18]      -> Low
+# (18 .. 28]     -> Normal
+# (28 .. 35]     -> High
+# (35 .. MAX]    -> Dangerously High
+# DISCLAIMER: The limits provided here are just examples and come
+# with NO WARRANTY. The authors of this example code claim
+# NO RESPONSIBILITY if reliance on the following values or this
+# code in general leads to ANY DAMAGES or DEATH.
+limits = [[4, 18, 28, 35],
+          [250, 650, 1013.25, 1015],
+          [20, 30, 60, 70],
+          [-1, -1, 30000, 100000],
+          [-1, -1, 40, 50],
+          [-1, -1, 450, 550],
+          [-1, -1, 200, 300],
+          [-1, -1, 50, 100],
+          [-1, -1, 50, 100],
+          [-1, -1, 50, 100]]
+
+# RGB palette for values on the combined screen
+palette = [(0, 0, 255),           # Dangerously Low
+           (0, 255, 255),         # Low
+           (0, 255, 0),           # Normal
+           (255, 255, 0),         # High
+           (255, 0, 0)]           # Dangerously High
+
 try:
     pms5003 = PMS5003()
 except serial.serialutil.SerialException:
@@ -86,6 +163,8 @@ influxdb_api = influxdb_client.write_api(write_options=SYNCHRONOUS)
 
 # Setup Luftdaten
 LUFTDATEN_TIME_BETWEEN_POSTS = int(os.getenv('LUFTDATEN_TIME_BETWEEN_POSTS', '30'))
+# delay between each write to lcd
+WRITE_TO_LCD_TIME = int(os.getenv('WRITE_TO_LCD_TIME', '4'))
 
 # Sometimes the sensors can't be read. Resetting the i2c 
 def reset_i2c():
@@ -100,21 +179,35 @@ def get_cpu_temperature():
         temp = int(temp) / 1000.0
     return temp
 
-def get_temperature(factor):
+def get_temperature(factor_usr):
     """Get temperature from the weather sensor"""
     # Tuning factor for compensation. Decrease this number to adjust the
     # temperature down, and increase to adjust up
     raw_temp = bme280.get_temperature()
 
-    if factor:
-        cpu_temps = [get_cpu_temperature()] * 5
-        cpu_temp = get_cpu_temperature()
-        # Smooth out with some averaging to decrease jitter
-        cpu_temps = cpu_temps[1:] + [cpu_temp]
-        avg_cpu_temp = sum(cpu_temps) / float(len(cpu_temps))
-        temperature = raw_temp - ((avg_cpu_temp - raw_temp) / factor)
-    else:
-        temperature = raw_temp
+    factor = 2.25
+
+
+
+    if factor_usr:
+        factor = factor_usr
+        # factor = factor_usr
+        # cpu_temps = [get_cpu_temperature()] * 5
+        # cpu_temp = get_cpu_temperature()
+        # # Smooth out with some averaging to decrease jitter
+        # cpu_temps = cpu_temps[1:] + [cpu_temp]
+        # avg_cpu_temp = sum(cpu_temps) / float(len(cpu_temps))
+        # temperature = raw_temp - ((avg_cpu_temp - raw_temp) / factor)
+    # else:
+    #     temperature = raw_temp
+
+    
+    cpu_temps = [get_cpu_temperature()] * 5
+    cpu_temp = get_cpu_temperature()
+    # Smooth out with some averaging to decrease jitter
+    cpu_temps = cpu_temps[1:] + [cpu_temp]
+    avg_cpu_temp = sum(cpu_temps) / float(len(cpu_temps))
+    temperature = raw_temp - ((avg_cpu_temp - raw_temp) / factor)
 
     TEMPERATURE.set(temperature)   # Set to a given value
 
@@ -197,6 +290,51 @@ def collect_all_data():
     sensor_data['pm25'] = PM25.collect()[0].samples[0].value
     sensor_data['pm10'] = PM10.collect()[0].samples[0].value
     return sensor_data
+
+def write_to_lcd():
+    """Write dta to eniro lcd"""
+    while True:
+        time.sleep(WRITE_TO_LCD_TIME)
+        sensor_data = collect_all_data()
+        try:
+            variables = [
+                "temperature",
+                "pressure",
+                "humidity",
+                "lux",
+                "oxidising",
+                "reducing",
+                "nh3"
+            ]
+
+            units = [
+                    "C",
+                    "hPa",
+                    "%",
+                    "Lux",
+                    "kO",
+                    "kO",
+                    "kO"
+            ]
+            draw.rectangle((0, 0, WIDTH, HEIGHT), (0, 0, 0))
+            column_count = 2
+            row_count = (len(variables) / column_count)
+            for i in range(len(variables)):
+                variable = variables[i]
+                data_value = sensor_data[variable]
+                unit = units[i]
+                x = x_offset + ((WIDTH // column_count) * (i // row_count))
+                y = y_offset + ((HEIGHT / row_count) * (i % row_count))
+                message = "{}: {:.1f} {}".format(variable[:4], data_value, unit)
+                lim = limits[i]
+                rgb = palette[0]
+                for j in range(len(lim)):
+                    if data_value > lim[j]:
+                        rgb = palette[j + 1]
+                draw.text((x, y), message, font=smallfont, fill=rgb)
+            st7735.display(img)
+        except Exception as exception:
+            logging.warning('Exception writing to LCD: {}'.format(exception))
 
 def post_to_influxdb():
     """Post all sensor data to InfluxDB"""
@@ -317,6 +455,9 @@ if __name__ == '__main__':
         luftdaten_thread = Thread(target=post_to_luftdaten)
         luftdaten_thread.start()
 
+    lcd_thread = Thread(target=write_to_lcd)
+    lcd_thread.start()
+
     logging.info("Listening on http://{}:{}".format(args.bind, args.port))
 
     while True:
@@ -326,6 +467,6 @@ if __name__ == '__main__':
         get_light()
         if not args.enviro:
             get_gas()
-            get_particulates()
+            # get_particulates()
         if DEBUG:
             logging.info('Sensor data: {}'.format(collect_all_data()))
