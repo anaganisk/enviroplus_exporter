@@ -314,10 +314,10 @@ def get_gas():
 def get_noise_profile():
     """Get the noise profile"""
     try:
-        low = noise.get_amplitude_at_frequency_range(0, 1000)
-        mid = noise.get_amplitude_at_frequency_range(1000, 10000)
-        high = noise.get_amplitude_at_frequency_range(10000, 20000)
-        amp = noise.get_amplitude_at_frequency_range(0, 20000)
+        low = noise.get_amplitude_at_frequency_range(0, 200)
+        mid = noise.get_amplitude_at_frequency_range(200, 2000)
+        high = noise.get_amplitude_at_frequency_range(2000, 8000)
+        amp = noise.get_amplitude_at_frequency_range(0, 8000)
         NOISE_PROFILE_LOW_FREQ.set(low)
         NOISE_PROFILE_MID_FREQ.set(mid)
         NOISE_PROFILE_HIGH_FREQ.set(high)
@@ -373,6 +373,10 @@ def collect_all_data():
     sensor_data['temperature'] = TEMPERATURE.collect()[0].samples[0].value
     sensor_data['humidity'] = HUMIDITY.collect()[0].samples[0].value
     sensor_data['pressure'] = PRESSURE.collect()[0].samples[0].value
+    sensor_data['noise_profile_low_freq'] = NOISE_PROFILE_LOW_FREQ.collect()[0].samples[0].value
+    sensor_data['noise_profile_mid_freq'] = NOISE_PROFILE_MID_FREQ.collect()[0].samples[0].value
+    sensor_data['noise_profile_high_freq'] = NOISE_PROFILE_HIGH_FREQ.collect()[0].samples[0].value
+    sensor_data['noise_profile_amp'] = NOISE_PROFILE_AMP.collect()[0].samples[0].value
     sensor_data['oxidising'] = OXIDISING.collect()[0].samples[0].value
     sensor_data['reducing'] = REDUCING.collect()[0].samples[0].value
     sensor_data['nh3'] = NH3.collect()[0].samples[0].value
@@ -396,7 +400,7 @@ def write_to_lcd():
                 "temperature",
                 "pressure",
                 "humidity",
-                "lux",
+                "Noise",
                 "oxidising",
                 "reducing",
                 "nh3"
@@ -406,7 +410,7 @@ def write_to_lcd():
                     "C",
                     "hPa",
                     "%",
-                    "Lux",
+                    "db",
                     "kO",
                     "kO",
                     "kO"
