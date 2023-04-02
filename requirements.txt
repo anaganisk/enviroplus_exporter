@@ -9,3 +9,4 @@ adafruit-blinka
 SafecastPy
 adafruit-circuitpython-lc709203f
 python-periphery
+paho-mqtt>=1.6.1

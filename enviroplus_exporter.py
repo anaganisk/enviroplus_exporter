@@ -9,6 +9,7 @@ import argparse
 import subprocess
 import serial
 from threading import Thread
+import json
 
 import board
 from influxdb_client import InfluxDBClient, Point
@@ -32,6 +33,7 @@ from PIL import Image, ImageDraw, ImageFont
 from fonts.ttf import RobotoMedium as UserFont
 from pms5003 import PMS5003
 from adafruit_lc709203f import LC709203F, PackSize
+import paho.mqtt.client as mqtt
 
 try:
     from smbus2 import SMBus
@@ -196,7 +198,6 @@ WRITE_TO_LCD_TIME = int(os.getenv('WRITE_TO_LCD_TIME', '4'))
 def reset_i2c():
     subprocess.run(['i2cdetect', '-y', '1'])
     time.sleep(2)
-
 
 # Setup Safecast
 SAFECAST_TIME_BETWEEN_POSTS = int(os.getenv('SAFECAST_TIME_BETWEEN_POSTS', '300'))
@@ -389,6 +390,73 @@ def collect_all_data():
     sensor_data['noise_profile_high_freq'] = NOISE_PROFILE_HIGH_FREQ.collect()[0].samples[0].value
     sensor_data['noise_profile_amp'] = NOISE_PROFILE_AMP.collect()[0].samples[0].value
     return sensor_data
+
+#mqtt
+MQTT_HOST = ""
+MQTT_PORT = ""
+MQTT_USER = ""
+MQTT_PASS = ""
+MQTT_TOPIC = ""
+MQTT_POST_INTERVAL_MILLIS = 500.0
+mqtt_client = mqtt.Client(client_id="weather_mon", clean_session=True, userdata=None, protocol=mqtt.MQTTv311, transport="tcp")
+MQTT_CONNECTED = False
+def connect_mqtt():
+    logging.info(f"Connecting to MQTT server {MQTT_HOST} on port {MQTT_PORT}")
+    mqtt_client = mqtt.Client(client_id="weather_mon", clean_session=True, userdata=None, protocol=mqtt.MQTTv311, transport="tcp")
+    mqtt_client.on_connect = on_connect
+    mqtt_client.on_disconnect = on_disconnect
+    mqtt_client.on_message = on_message
+    mqtt_client.username_pw_set(MQTT_USER, MQTT_PASS)
+    mqtt_client.loop_start() #start the loop
+    mqtt_client.connect(MQTT_HOST, int(MQTT_PORT), 60)
+
+def on_message(client, userdata, msg):
+    logging.info("Message received-> " + msg.topic + " " + str(msg.payload))
+
+def on_connect(client, userdata, flags, rc):
+    logging.info("Connected to MQTT with result code "+str(rc))
+    logging.info("Subscribing to topic: " + MQTT_TOPIC + "/#")
+    client.subscribe(f"{MQTT_TOPIC}/#")
+    global MQTT_CONNECTED
+    MQTT_CONNECTED = True
+
+def on_disconnect(client, userdata, rc):
+    logging.info("Disconnected from MQTT with result code "+str(rc))
+    global MQTT_CONNECTED
+    MQTT_CONNECTED = False
+
+def post_data_mqtt():
+    last_mqtt_post = time.time()
+    global MQTT_CONNECTED
+    while True:
+
+        global mqtt_client
+        if MQTT_CONNECTED and (time.time() - last_mqtt_post) > (MQTT_POST_INTERVAL_MILLIS / 1000.0):
+            try:    
+                sensor_data = collect_all_data()
+                logging.info(json.dumps(sensor_data))
+                logging.info(f"{MQTT_TOPIC}/temperature with value {str(sensor_data['temperature'])}")
+                mqtt_client.publish(f"{MQTT_TOPIC}/temperature", str(sensor_data['temperature']), qos=1, retain=False)
+                mqtt_client.publish(f"{MQTT_TOPIC}/humidity", str(sensor_data['humidity']), qos=1, retain=False)
+                mqtt_client.publish(f"{MQTT_TOPIC}/pressure", str(sensor_data['pressure']), qos=1, retain=False)
+                mqtt_client.publish(f"{MQTT_TOPIC}/oxidising", str(sensor_data['oxidising']), qos=1, retain=False)
+                mqtt_client.publish(f"{MQTT_TOPIC}/reducing", str(sensor_data['reducing']), qos=1, retain=False)
+                mqtt_client.publish(f"{MQTT_TOPIC}/nh3", str(sensor_data['nh3']), qos=1, retain=False)
+                mqtt_client.publish(f"{MQTT_TOPIC}/lux", str(sensor_data['lux']), qos=1, retain=False)
+                mqtt_client.publish(f"{MQTT_TOPIC}/proximity", str(sensor_data['proximity']), qos=1, retain=False)
+                mqtt_client.publish(f"{MQTT_TOPIC}/pm1", str(sensor_data['pm1']), qos=1, retain=False)
+                mqtt_client.publish(f"{MQTT_TOPIC}/pm25", str(sensor_data['pm25']), qos=1, retain=False)
+                mqtt_client.publish(f"{MQTT_TOPIC}/pm10", str(sensor_data['pm10']), qos=1, retain=False)
+                mqtt_client.publish(f"{MQTT_TOPIC}/cpu_temperature", str(sensor_data['cpu_temperature']), qos=1, retain=False)
+                mqtt_client.publish(f"{MQTT_TOPIC}/battery_voltage", str(sensor_data['battery_voltage']), qos=1, retain=False)
+                mqtt_client.publish(f"{MQTT_TOPIC}/battery_percentage", str(sensor_data['battery_percentage']), qos=1, retain=False)
+                mqtt_client.publish(f"{MQTT_TOPIC}/noise_profile_low_freq", str(sensor_data['noise_profile_low_freq']), qos=1, retain=False)
+                mqtt_client.publish(f"{MQTT_TOPIC}/noise_profile_mid_freq", str(sensor_data['noise_profile_mid_freq']), qos=1, retain=False)
+                mqtt_client.publish(f"{MQTT_TOPIC}/noise_profile_high_freq", str(sensor_data['noise_profile_high_freq']), qos=1, retain=False)
+                mqtt_client.publish(f"{MQTT_TOPIC}/noise_profile_amp", str(sensor_data['noise_profile_amp']), qos=1, retain=False)
+            except (RuntimeError, OSError) as exception:
+                logging.warning("Failed to post data to mqtt with error: {}".format(exception))
+            last_mqtt_post = time.time()
 
 def write_to_lcd():
     """Write dta to eniro lcd"""
@@ -666,6 +734,7 @@ if __name__ == '__main__':
     parser.add_argument("-l", "--luftdaten", metavar='LUFTDATEN', type=str_to_bool, default='false', help="Post sensor data to Luftdaten.info [default: false]")
     parser.add_argument("-s", "--safecast", metavar='SAFECAST', type=str_to_bool, default='false', help="Post sensor data to Safecast.org [default: false]")
     parser.add_argument("-n", "--notecard", metavar='NOTECARD', type=str_to_bool, default='false', help="Post sensor data to Notehub.io via Notecard LTE [default: false]")
+    parser.add_argument("-m", "--mqtt", metavar='MQTT', type=str, default=None, help="MQTT configuration localhost:1883:username:password:topic:interval [default: none]")
     args = parser.parse_args()
 
     # Start up the server to expose the metrics.
@@ -693,6 +762,21 @@ if __name__ == '__main__':
         logging.info("Sensor data will be posted to Luftdaten every {} seconds for the UID {}".format(LUFTDATEN_TIME_BETWEEN_POSTS, LUFTDATEN_SENSOR_UID))
         luftdaten_thread = Thread(target=post_to_luftdaten)
         luftdaten_thread.start()
+
+    if args.mqtt is not None:
+        # Post to MQTT in another thread
+        mqttdata = args.mqtt.split(':')
+        MQTT_HOST = mqttdata[0]
+        MQTT_PORT = mqttdata[1]
+        MQTT_USER = mqttdata[2]
+        MQTT_PASS = mqttdata[3]
+        MQTT_TOPIC = mqttdata[4]
+        MQTT_POST_INTERVAL_MILLIS = float(mqttdata[5])
+        logging.info("Sensor data will be posted to MQTT every {} seconds to topic {}/+".format(MQTT_POST_INTERVAL_MILLIS, MQTT_TOPIC))
+        
+        connect_mqtt()
+        mqtt_publisher__thread = Thread(target=post_data_mqtt)
+        mqtt_publisher__thread.start()
 
     lcd_thread = Thread(target=write_to_lcd)
     lcd_thread.start()
