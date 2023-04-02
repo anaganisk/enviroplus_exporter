@@ -407,14 +407,10 @@ def connect_mqtt():
     mqtt_client.on_connect = on_connect
     mqtt_client.on_disconnect = on_disconnect
     mqtt_client.on_message = on_message
-    mqtt_client.on_publish = on_publish
     mqtt_client.username_pw_set(MQTT_USER, MQTT_PASS)
+    mqtt_client.will_set(f"{MQTT_TOPIC}/enviro_plus/availability", "offline", 1, True)
     mqtt_client.connect(MQTT_HOST, int(MQTT_PORT), 60)
     mqtt_client.loop_start() #start the loop
-
-def on_publish(client, userdata, result):            
-    print("data published \n")
-    pass
 
 def on_message(client, userdata, msg):
     logging.info("Message received-> " + msg.topic + " " + str(msg.payload))
@@ -422,7 +418,7 @@ def on_message(client, userdata, msg):
 def on_connect(client, userdata, flags, rc):
     logging.info("Connected to MQTT with result code "+str(rc))
     logging.info("Subscribing to topic: " + MQTT_TOPIC + "/#")
-    client.subscribe(f"{MQTT_TOPIC}/#")
+    home_assistant_discovery()
     global MQTT_CONNECTED
     MQTT_CONNECTED = True
 
@@ -435,35 +431,214 @@ def post_data_mqtt():
     last_mqtt_post = time.time()
     global MQTT_CONNECTED
     while True:
-
         global mqtt_client
         if MQTT_CONNECTED and (time.time() - last_mqtt_post) > (MQTT_POST_INTERVAL_MILLIS / 1000.0):
             try:    
                 sensor_data = collect_all_data()
-                logging.info(json.dumps(sensor_data))
-                logging.info(f"{MQTT_TOPIC}/temperature with value {str(sensor_data['temperature'])}")
-                pub = mqtt_client.publish(f"{MQTT_TOPIC}/temperature", str(sensor_data['temperature']), qos=1, retain=False)
-                logging.info(pub)
-                mqtt_client.publish(f"{MQTT_TOPIC}/humidity", str(sensor_data['humidity']), qos=1, retain=False)
-                mqtt_client.publish(f"{MQTT_TOPIC}/pressure", str(sensor_data['pressure']), qos=1, retain=False)
-                mqtt_client.publish(f"{MQTT_TOPIC}/oxidising", str(sensor_data['oxidising']), qos=1, retain=False)
-                mqtt_client.publish(f"{MQTT_TOPIC}/reducing", str(sensor_data['reducing']), qos=1, retain=False)
-                mqtt_client.publish(f"{MQTT_TOPIC}/nh3", str(sensor_data['nh3']), qos=1, retain=False)
-                mqtt_client.publish(f"{MQTT_TOPIC}/lux", str(sensor_data['lux']), qos=1, retain=False)
-                mqtt_client.publish(f"{MQTT_TOPIC}/proximity", str(sensor_data['proximity']), qos=1, retain=False)
-                mqtt_client.publish(f"{MQTT_TOPIC}/pm1", str(sensor_data['pm1']), qos=1, retain=False)
-                mqtt_client.publish(f"{MQTT_TOPIC}/pm25", str(sensor_data['pm25']), qos=1, retain=False)
-                mqtt_client.publish(f"{MQTT_TOPIC}/pm10", str(sensor_data['pm10']), qos=1, retain=False)
-                mqtt_client.publish(f"{MQTT_TOPIC}/cpu_temperature", str(sensor_data['cpu_temperature']), qos=1, retain=False)
-                mqtt_client.publish(f"{MQTT_TOPIC}/battery_voltage", str(sensor_data['battery_voltage']), qos=1, retain=False)
-                mqtt_client.publish(f"{MQTT_TOPIC}/battery_percentage", str(sensor_data['battery_percentage']), qos=1, retain=False)
-                mqtt_client.publish(f"{MQTT_TOPIC}/noise_profile_low_freq", str(sensor_data['noise_profile_low_freq']), qos=1, retain=False)
-                mqtt_client.publish(f"{MQTT_TOPIC}/noise_profile_mid_freq", str(sensor_data['noise_profile_mid_freq']), qos=1, retain=False)
-                mqtt_client.publish(f"{MQTT_TOPIC}/noise_profile_high_freq", str(sensor_data['noise_profile_high_freq']), qos=1, retain=False)
-                mqtt_client.publish(f"{MQTT_TOPIC}/noise_profile_amp", str(sensor_data['noise_profile_amp']), qos=1, retain=False)
+                mqtt_client.publish(f"{MQTT_TOPIC}/enviro_plus_temperature", json.dumps({"temperature": sensor_data['temperature']}), qos=1, retain=True)
+                mqtt_client.publish(f"{MQTT_TOPIC}/enviro_plus_humidity", json.dumps({"humidity": sensor_data['humidity']}), qos=1, retain=True)
+                mqtt_client.publish(f"{MQTT_TOPIC}/enviro_plus_pressure", json.dumps({"pressure": sensor_data['pressure']}), qos=1, retain=True)
+                mqtt_client.publish(f"{MQTT_TOPIC}/enviro_plus_oxidising", json.dumps({"oxidising": sensor_data['oxidising']}), qos=1, retain=True)
+                mqtt_client.publish(f"{MQTT_TOPIC}/enviro_plus_reducing", json.dumps({"reducing": sensor_data['reducing']}), qos=1, retain=True)
+                mqtt_client.publish(f"{MQTT_TOPIC}/enviro_plus_nh3", json.dumps({"nh3": sensor_data['nh3']}), qos=1, retain=True)
+                mqtt_client.publish(f"{MQTT_TOPIC}/enviro_plus_lux", json.dumps({"lux": sensor_data['lux']}), qos=1, retain=True)
+                mqtt_client.publish(f"{MQTT_TOPIC}/enviro_plus_proximity", json.dumps({"proximity": sensor_data['proximity']}), qos=1, retain=True)
+                mqtt_client.publish(f"{MQTT_TOPIC}/enviro_plus_pm1", json.dumps({"pm1": sensor_data['pm1']}), qos=1, retain=True)
+                mqtt_client.publish(f"{MQTT_TOPIC}/enviro_plus_pm25", json.dumps({"pm25": sensor_data['pm25']}), qos=1, retain=True)
+                mqtt_client.publish(f"{MQTT_TOPIC}/enviro_plus_pm10", json.dumps({"pm10": sensor_data['pm10']}), qos=1, retain=True)
+                mqtt_client.publish(f"{MQTT_TOPIC}/enviro_plus_noise_profile_low", json.dumps({"noise_profile_low": sensor_data['noise_profile_low_freq']}), qos=1, retain=True)
+                mqtt_client.publish(f"{MQTT_TOPIC}/enviro_plus_noise_profile_mid", json.dumps({"noise_profile_mid": sensor_data['noise_profile_mid_freq']}), qos=1, retain=True)
+                mqtt_client.publish(f"{MQTT_TOPIC}/enviro_plus_noise_profile_high", json.dumps({"noise_profile_high": sensor_data['noise_profile_high_freq']}), qos=1, retain=True)
+                mqtt_client.publish(f"{MQTT_TOPIC}/enviro_plus_noise_profile_amp", json.dumps({"noise_profile_amp": sensor_data['noise_profile_amp']}), qos=1, retain=True)
+
             except (RuntimeError, OSError) as exception:
                 logging.warning("Failed to post data to mqtt with error: {}".format(exception))
             last_mqtt_post = time.time()
+
+def home_assistant_discovery():
+    """Publish home assistant discovery messages"""
+    temp_discovery_topic = f"homeassistant/sensor/enviro_plus_temperature/config"
+    temp_configuration = {
+        "name": "Enviro plus Temperature",
+        "unique_id": "enviro_plus_temperature",
+        "availability_topic": f"{MQTT_TOPIC}/enviro_plus/availability",
+        "state_topic": f"{MQTT_TOPIC}/enviro_plus_temperature",
+        "unit_of_measurement": "C",
+        "value_template": "{{ value_json.temperature | round(1) }}",
+        "unit_of_measurement": "C",
+        "device_class": "temperature",
+    }
+    mqtt_client.publish(temp_discovery_topic, json.dumps(temp_configuration), retain=True)
+
+    humidity_discovery_topic = f"homeassistant/sensor/enviro_plus_humidity/config"
+    humidity_configuration = {
+        "name": "Enviro plus Humidity",
+        "unique_id": "enviro_plus_humidity",
+        "availability_topic": f"{MQTT_TOPIC}/enviro_plus/availability",
+        "state_topic": f"{MQTT_TOPIC}/enviro_plus_humidity",
+        "unit_of_measurement": "%",   
+        "value_template": "{{ value_json.humidity | round(1) }}",
+        "device_class": "humidity",
+    }
+    mqtt_client.publish(humidity_discovery_topic, json.dumps(humidity_configuration), retain=True)
+
+    pressure_discovery_topic = f"homeassistant/sensor/enviro_plus_pressure/config"
+    pressure_configuration = {
+        "name": "Enviro plus Pressure",
+        "unique_id": "enviro_plus_pressure",
+        "availability_topic": f"{MQTT_TOPIC}/enviro_plus/availability",
+        "state_topic": f"{MQTT_TOPIC}/enviro_plus_pressure",
+        "unit_of_measurement": "hPa",
+        "value_template": "{{ value_json.pressure | round(1) }}",
+        "device_class": "pressure",
+    }
+    mqtt_client.publish(pressure_discovery_topic, json.dumps(pressure_configuration), retain=True)
+
+    pm1_discovery_topic = f"homeassistant/sensor/enviro_plus_pm1/config"
+    pm1_configuration = {
+        "name": "Enviro plus PM1",
+        "unique_id": "enviro_plus_pm1",
+        "availability_topic": f"{MQTT_TOPIC}/enviro_plus/availability",
+        "state_topic": f"{MQTT_TOPIC}/enviro_plus_pm1",
+        "unit_of_measurement": "ug/m3",
+        "value_template": "{{ value_json.pm1 | round(1) }}",
+        "device_class": "pm1",
+    }
+    mqtt_client.publish(pm1_discovery_topic, json.dumps(pm1_configuration), retain=True)
+
+    pm25_discovery_topic = f"homeassistant/sensor/enviro_plus_pm25/config"
+    pm25_configuration = {
+        "name": "Enviro plus PM2.5",
+        "unique_id": "enviro_plus_pm25",
+        "availability_topic": f"{MQTT_TOPIC}/enviro_plus/availability",
+        "state_topic": f"{MQTT_TOPIC}/enviro_plus_pm25",
+        "unit_of_measurement": "ug/m3",
+        "value_template": "{{ value_json.pm25 | round(1) }}",
+        "device_class": "pm25",
+    }
+    mqtt_client.publish(pm25_discovery_topic, json.dumps(pm25_configuration), retain=True)
+
+    pm10_discovery_topic = f"homeassistant/sensor/enviro_plus_pm10/config"
+    pm10_configuration = {
+        "name": "Enviro plus PM10",
+        "unique_id": "enviro_plus_pm10",
+        "availability_topic": f"{MQTT_TOPIC}/enviro_plus/availability",
+        "state_topic": f"{MQTT_TOPIC}/enviro_plus_pm10",
+        "unit_of_measurement": "ug/m3",
+        "value_template": "{{ value_json.pm10 | round(1) }}",
+        "device_class": "pm10",
+    }
+    mqtt_client.publish(pm10_discovery_topic, json.dumps(pm10_configuration), retain=True)
+
+    oxidising_discovery_topic = f"homeassistant/sensor/enviro_plus_oxidising/config"
+    oxidising_configuration = {
+        "name": "Enviro plus Oxidising",
+        "unique_id": "enviro_plus_oxidising",
+        "availability_topic": f"{MQTT_TOPIC}/enviro_plus/availability",
+        "state_topic": f"{MQTT_TOPIC}/enviro_plus_oxidising",
+        "unit_of_measurement": "kO",
+        "value_template": "{{ value_json.oxidising | round(1) }}",
+    }
+
+    mqtt_client.publish(oxidising_discovery_topic, json.dumps(oxidising_configuration), retain=True)
+
+    reducing_discovery_topic = f"homeassistant/sensor/enviro_plus_reducing/config"
+    reducing_configuration = {
+        "name": "Enviro plus Reducing",
+        "unique_id": "enviro_plus_reducing",
+        "availability_topic": f"{MQTT_TOPIC}/enviro_plus/availability",
+        "state_topic": f"{MQTT_TOPIC}/enviro_plus_reducing",
+        "unit_of_measurement": "kO",
+        "value_template": "{{ value_json.reducing | round(1) }}",
+    }
+    mqtt_client.publish(reducing_discovery_topic, json.dumps(reducing_configuration), retain=True)
+
+    nh3_discovery_topic = f"homeassistant/sensor/enviro_plus_nh3/config"
+    nh3_configuration = {
+        "name": "Enviro plus NH3",
+        "unique_id": "enviro_plus_nh3",
+        "availability_topic": f"{MQTT_TOPIC}/enviro_plus/availability",
+        "state_topic": f"{MQTT_TOPIC}/enviro_plus_nh3",
+        "unit_of_measurement": "kO",
+        "value_template": "{{ value_json.nh3 | round(1) }}",
+    }
+    mqtt_client.publish(nh3_discovery_topic, json.dumps(nh3_configuration), retain=True)
+
+    lux_discovery_topic = f"homeassistant/sensor/enviro_plus_lux/config"
+    lux_configuration = {
+        "name": "Enviro plus Lux",
+        "unique_id": "enviro_plus_lux",
+        "availability_topic": f"{MQTT_TOPIC}/enviro_plus/availability",
+        "state_topic": f"{MQTT_TOPIC}/enviro_plus_lux",
+        "unit_of_measurement": "lx",
+        "value_template": "{{ value_json.lux | round(1) }}",
+        "device_class": "illuminance",
+    }
+    mqtt_client.publish(lux_discovery_topic, json.dumps(lux_configuration), retain=True)
+
+    proximity_discovery_topic = f"homeassistant/sensor/enviro_plus_proximity/config"
+    proximity_configuration = {
+        "name": "Enviro plus Proximity",
+        "unique_id": "enviro_plus_proximity",
+        "availability_topic": f"{MQTT_TOPIC}/enviro_plus/availability",
+        "state_topic": f"{MQTT_TOPIC}/enviro_plus_proximity",
+        "unit_of_measurement": "cm",
+        "value_template": "{{ value_json.proximity | round(1) }}",
+        "device_class": "distance",
+    }
+    mqtt_client.publish(proximity_discovery_topic, json.dumps(proximity_configuration), retain=True)
+
+    noise_profile_low_discovery_topic = f"homeassistant/sensor/enviro_plus_noise_profile_low/config"
+    noise_profile_low_configuration = {
+        "name": "Enviro plus Noise Profile Low",
+        "unique_id": "enviro_plus_noise_profile_low",
+        "availability_topic": f"{MQTT_TOPIC}/enviro_plus/availability",
+        "state_topic": f"{MQTT_TOPIC}/enviro_plus_noise_profile_low",
+        "unit_of_measurement": "db",
+        "value_template": "{{ value_json.noise_profile_low | round(1) }}",
+        "device_class": "sound_pressure",
+    }
+    mqtt_client.publish(noise_profile_low_discovery_topic, json.dumps(noise_profile_low_configuration), retain=True)
+
+    noise_profile_mid_discovery_topic = f"homeassistant/sensor/enviro_plus_noise_profile_mid/config"
+    noise_profile_mid_configuration = {
+        "name": "Enviro plus Noise Profile Mid",
+        "unique_id": "enviro_plus_noise_profile_mid",
+        "availability_topic": f"{MQTT_TOPIC}/enviro_plus/availability",
+        "state_topic": f"{MQTT_TOPIC}/enviro_plus_noise_profile_mid",
+        "unit_of_measurement": "db",
+        "value_template": "{{ value_json.noise_profile_mid | round(1) }}",
+        "device_class": "sound_pressure",
+    }
+    mqtt_client.publish(noise_profile_mid_discovery_topic, json.dumps(noise_profile_mid_configuration), retain=True)
+
+    noise_profile_high_discovery_topic = f"homeassistant/sensor/enviro_plus_noise_profile_high/config"
+    noise_profile_high_configuration = {
+        "name": "Enviro plus Noise Profile High",
+        "unique_id": "enviro_plus_noise_profile_high",
+        "availability_topic": f"{MQTT_TOPIC}/enviro_plus/availability",
+        "state_topic": f"{MQTT_TOPIC}/enviro_plus_noise_profile_high",
+        "unit_of_measurement": "db",
+        "value_template": "{{ value_json.noise_profile_high | round(1) }}",
+        "device_class": "sound_pressure",
+    }
+    mqtt_client.publish(noise_profile_high_discovery_topic, json.dumps(noise_profile_high_configuration), retain=True)
+
+    noise_profile_amp_discovery_topic = f"homeassistant/sensor/enviro_plus_noise_profile_amp/config"
+    noise_profile_amp_configuration = {
+        "name": "Enviro plus Noise Profile Amp",
+        "unique_id": "enviro_plus_noise_profile_amp",
+        "availability_topic": f"{MQTT_TOPIC}/enviro_plus/availability",
+        "state_topic": f"{MQTT_TOPIC}/enviro_plus_noise_profile_amp",
+        "unit_of_measurement": "db",
+        "value_template": "{{ value_json.noise_profile_amp | round(1) }}",
+        "device_class": "sound_pressure",
+    }
+    mqtt_client.publish(noise_profile_amp_discovery_topic, json.dumps(noise_profile_amp_configuration), retain=True)
+
+    mqtt_client.publish(f"{MQTT_TOPIC}/enviro_plus/availability", "online", 1, retain=True)
+
+    
 
 def write_to_lcd():
     """Write dta to eniro lcd"""
