@@ -314,10 +314,10 @@ def get_gas():
 def get_noise_profile():
     """Get the noise profile"""
     try:
-        low = noise.get_amplitude_at_frequency_range(0, 200)
+        low = noise.get_amplitude_at_frequency_range(20, 200)
         mid = noise.get_amplitude_at_frequency_range(200, 2000)
         high = noise.get_amplitude_at_frequency_range(2000, 8000)
-        amp = noise.get_amplitude_at_frequency_range(0, 8000)
+        amp = noise.get_amplitude_at_frequency_range(20, 8000)
         NOISE_PROFILE_LOW_FREQ.set(low)
         NOISE_PROFILE_MID_FREQ.set(mid)
         NOISE_PROFILE_HIGH_FREQ.set(high)
@@ -401,9 +401,9 @@ def write_to_lcd():
                 "pressure",
                 "humidity",
                 "noise_profile_amp",
-                "noise_profile_low_freq",
-                "noise_profile_mid_freq",
-                "noise_profile_high_freq"
+                "oxidising",
+                "reducing",
+                "nh3"
             ]
 
             units = [
@@ -411,9 +411,9 @@ def write_to_lcd():
                     "hPa",
                     "%",
                     "db",
-                    "db",
-                    "db",
-                    "db"
+                    "kO",
+                    "kO",
+                    "kO"
             ]
             draw.rectangle((0, 0, WIDTH, HEIGHT), (0, 0, 0))
             column_count = 2
