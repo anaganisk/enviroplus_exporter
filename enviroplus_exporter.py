@@ -401,14 +401,20 @@ MQTT_POST_INTERVAL_MILLIS = 500.0
 mqtt_client = mqtt.Client(client_id="weather_mon", clean_session=True, userdata=None, protocol=mqtt.MQTTv311, transport="tcp")
 MQTT_CONNECTED = False
 def connect_mqtt():
+    global mqtt_client
     logging.info(f"Connecting to MQTT server {MQTT_HOST} on port {MQTT_PORT}")
     mqtt_client = mqtt.Client(client_id="weather_mon", clean_session=True, userdata=None, protocol=mqtt.MQTTv311, transport="tcp")
     mqtt_client.on_connect = on_connect
     mqtt_client.on_disconnect = on_disconnect
     mqtt_client.on_message = on_message
+    mqtt_client.on_publish = on_publish
     mqtt_client.username_pw_set(MQTT_USER, MQTT_PASS)
-    mqtt_client.loop_start() #start the loop
     mqtt_client.connect(MQTT_HOST, int(MQTT_PORT), 60)
+    mqtt_client.loop_start() #start the loop
+
+def on_publish(client, userdata, result):            
+    print("data published \n")
+    pass
 
 def on_message(client, userdata, msg):
     logging.info("Message received-> " + msg.topic + " " + str(msg.payload))
@@ -436,7 +442,8 @@ def post_data_mqtt():
                 sensor_data = collect_all_data()
                 logging.info(json.dumps(sensor_data))
                 logging.info(f"{MQTT_TOPIC}/temperature with value {str(sensor_data['temperature'])}")
-                mqtt_client.publish(f"{MQTT_TOPIC}/temperature", str(sensor_data['temperature']), qos=1, retain=False)
+                pub = mqtt_client.publish(f"{MQTT_TOPIC}/temperature", str(sensor_data['temperature']), qos=1, retain=False)
+                logging.info(pub)
                 mqtt_client.publish(f"{MQTT_TOPIC}/humidity", str(sensor_data['humidity']), qos=1, retain=False)
                 mqtt_client.publish(f"{MQTT_TOPIC}/pressure", str(sensor_data['pressure']), qos=1, retain=False)
                 mqtt_client.publish(f"{MQTT_TOPIC}/oxidising", str(sensor_data['oxidising']), qos=1, retain=False)
