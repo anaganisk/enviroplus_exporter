@@ -373,10 +373,6 @@ def collect_all_data():
     sensor_data['temperature'] = TEMPERATURE.collect()[0].samples[0].value
     sensor_data['humidity'] = HUMIDITY.collect()[0].samples[0].value
     sensor_data['pressure'] = PRESSURE.collect()[0].samples[0].value
-    sensor_data['noise_profile_low_freq'] = NOISE_PROFILE_LOW_FREQ.collect()[0].samples[0].value
-    sensor_data['noise_profile_mid_freq'] = NOISE_PROFILE_MID_FREQ.collect()[0].samples[0].value
-    sensor_data['noise_profile_high_freq'] = NOISE_PROFILE_HIGH_FREQ.collect()[0].samples[0].value
-    sensor_data['noise_profile_amp'] = NOISE_PROFILE_AMP.collect()[0].samples[0].value
     sensor_data['oxidising'] = OXIDISING.collect()[0].samples[0].value
     sensor_data['reducing'] = REDUCING.collect()[0].samples[0].value
     sensor_data['nh3'] = NH3.collect()[0].samples[0].value
@@ -388,6 +384,10 @@ def collect_all_data():
     sensor_data['cpu_temperature'] = CPU_TEMPERATURE.collect()[0].samples[0].value
     sensor_data['battery_voltage'] = BATTERY_VOLTAGE.collect()[0].samples[0].value
     sensor_data['battery_percentage'] = BATTERY_PERCENTAGE.collect()[0].samples[0].value
+    sensor_data['noise_profile_low_freq'] = NOISE_PROFILE_LOW_FREQ.collect()[0].samples[0].value
+    sensor_data['noise_profile_mid_freq'] = NOISE_PROFILE_MID_FREQ.collect()[0].samples[0].value
+    sensor_data['noise_profile_high_freq'] = NOISE_PROFILE_HIGH_FREQ.collect()[0].samples[0].value
+    sensor_data['noise_profile_amp'] = NOISE_PROFILE_AMP.collect()[0].samples[0].value
     return sensor_data
 
 def write_to_lcd():
@@ -400,10 +400,10 @@ def write_to_lcd():
                 "temperature",
                 "pressure",
                 "humidity",
-                "Noise",
-                "oxidising",
-                "reducing",
-                "nh3"
+                "noise_profile_amp",
+                "noise_profile_low_freq",
+                "noise_profile_mid_freq",
+                "noise_profile_high_freq"
             ]
 
             units = [
@@ -411,9 +411,9 @@ def write_to_lcd():
                     "hPa",
                     "%",
                     "db",
-                    "kO",
-                    "kO",
-                    "kO"
+                    "db",
+                    "db",
+                    "db"
             ]
             draw.rectangle((0, 0, WIDTH, HEIGHT), (0, 0, 0))
             column_count = 2
