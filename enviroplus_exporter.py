@@ -15,11 +15,12 @@ from influxdb_client import InfluxDBClient, Point
 from influxdb_client.client.write_api import SYNCHRONOUS
 from prometheus_client import start_http_server, Gauge, Histogram
 import SafecastPy
-import notecard.notecard as notecard
+# import notecard.notecard as notecard
 from periphery import Serial
 
 from bme280 import BME280
 from enviroplus import gas
+from enviroplus.noise import Noise
 from pms5003 import PMS5003, ReadTimeoutError as pmsReadTimeoutError, SerialTimeoutError as pmsSerialTimeoutError
 
 from influxdb_client import InfluxDBClient, Point
@@ -61,6 +62,7 @@ DEBUG = os.getenv('DEBUG', 'false') == 'true'
 
 bus = SMBus(1)
 bme280 = BME280(i2c_dev=bus)
+noise = Noise()
 
 st7735 = ST7735.ST7735(
     port=0,
@@ -169,6 +171,11 @@ PM1_HIST = Histogram('pm1_measurements', 'Histogram of Particulate Matter of dia
 PM25_HIST = Histogram('pm25_measurements', 'Histogram of Particulate Matter of diameter less than 2.5 micron measurements', buckets=(0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100))
 PM10_HIST = Histogram('pm10_measurements', 'Histogram of Particulate Matter of diameter less than 10 micron measurements', buckets=(0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100))
 
+NOISE_PROFILE_LOW_FREQ = Gauge('noise_profile_low_freq', 'Noise profile of low frequency noise (db)')
+NOISE_PROFILE_MID_FREQ = Gauge('noise_profile_mid_freq', 'Noise profile of mid frequency noise (db)')
+NOISE_PROFILE_HIGH_FREQ = Gauge('noise_profile_high_freq', 'Noise profile of high frequency noise (db)')
+NOISE_PROFILE_AMP = Gauge('noise_profile_amp', 'Noise profile of amplitude (db)')
+
 # Setup InfluxDB
 # You can generate an InfluxDB Token from the Tokens Tab in the InfluxDB Cloud UI
 INFLUXDB_URL = os.getenv('INFLUXDB_URL', '')
@@ -244,29 +251,29 @@ def get_temperature(factor_usr):
     # temperature down, and increase to adjust up
     raw_temp = bme280.get_temperature()
 
-    factor = 2.25
+    factor = 1.25
 
 
 
     if factor_usr:
         factor = factor_usr
         # factor = factor_usr
-        # cpu_temps = [get_cpu_temperature()] * 5
-        # cpu_temp = get_cpu_temperature()
-        # # Smooth out with some averaging to decrease jitter
-        # cpu_temps = cpu_temps[1:] + [cpu_temp]
-        # avg_cpu_temp = sum(cpu_temps) / float(len(cpu_temps))
-        # temperature = raw_temp - ((avg_cpu_temp - raw_temp) / factor)
-    # else:
-    #     temperature = raw_temp
+        cpu_temps = [get_cpu_temperature()] * 5
+        cpu_temp = get_cpu_temperature()
+        # Smooth out with some averaging to decrease jitter
+        cpu_temps = cpu_temps[1:] + [cpu_temp]
+        avg_cpu_temp = sum(cpu_temps) / float(len(cpu_temps))
+        temperature = raw_temp - ((avg_cpu_temp - raw_temp) / factor)
+    else:
+        temperature = raw_temp
 
     
-    cpu_temps = [get_cpu_temperature()] * 5
-    cpu_temp = get_cpu_temperature()
-    # Smooth out with some averaging to decrease jitter
-    cpu_temps = cpu_temps[1:] + [cpu_temp]
-    avg_cpu_temp = sum(cpu_temps) / float(len(cpu_temps))
-    temperature = raw_temp - ((avg_cpu_temp - raw_temp) / factor)
+    # cpu_temps = [get_cpu_temperature()] * 5
+    # cpu_temp = get_cpu_temperature()
+    # # Smooth out with some averaging to decrease jitter
+    # cpu_temps = cpu_temps[1:] + [cpu_temp]
+    # avg_cpu_temp = sum(cpu_temps) / float(len(cpu_temps))
+    # temperature = raw_temp - ((avg_cpu_temp - raw_temp) / factor)
 
     TEMPERATURE.set(temperature)   # Set to a given value
 
@@ -302,6 +309,18 @@ def get_gas():
         NH3_HIST.observe(readings.nh3)
     except IOError:
         logging.error("Could not get gas readings. Resetting i2c.")
+        reset_i2c()
+
+def get_noise_profile():
+    """Get the noise profile"""
+    try:
+        low, mid, high, amp = noise.get_noise_profile()
+        NOISE_PROFILE_LOW_FREQ.set(low)
+        NOISE_PROFILE_MID_FREQ.set(mid)
+        NOISE_PROFILE_HIGH_FREQ.set(high)
+        NOISE_PROFILE_AMP.set(amp)
+    except IOError:
+        logging.error("Could not get noise profile. Resetting i2c.")
         reset_i2c()
 
 def get_light():
@@ -679,6 +698,7 @@ if __name__ == '__main__':
         get_pressure()
         get_light()
         get_gas()
+        get_noise_profile()
         if not args.enviro:
             get_gas()
             # get_particulates()
