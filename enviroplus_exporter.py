@@ -314,7 +314,10 @@ def get_gas():
 def get_noise_profile():
     """Get the noise profile"""
     try:
-        low, mid, high, amp = noise.get_noise_profile()
+        low = noise.get_amplitude_at_frequency_range(0, 1000)
+        mid = noise.get_amplitude_at_frequency_range(1000, 10000)
+        high = noise.get_amplitude_at_frequency_range(10000, 20000)
+        amp = noise.get_amplitude_at_frequency_range(0, 20000)
         NOISE_PROFILE_LOW_FREQ.set(low)
         NOISE_PROFILE_MID_FREQ.set(mid)
         NOISE_PROFILE_HIGH_FREQ.set(high)
