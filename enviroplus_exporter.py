@@ -967,6 +967,7 @@ if __name__ == '__main__':
 
     while True:
         get_temperature(args.temp)
+        get_cpu_temperature()
         get_humidity(args.humid)
         get_pressure()
         get_light()
