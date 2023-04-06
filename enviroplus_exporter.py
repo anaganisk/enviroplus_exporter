@@ -49,7 +49,7 @@ except ImportError:
 
 logging.basicConfig(
     format='%(asctime)s.%(msecs)03d %(levelname)-8s %(message)s',
-    level=logging.INFO,
+    level=logging.DEBUG,
     handlers=[logging.FileHandler("enviroplus_exporter.log"),
               logging.StreamHandler()],
     datefmt='%Y-%m-%d %H:%M:%S')
@@ -645,43 +645,35 @@ def write_to_lcd():
     while True:
         time.sleep(WRITE_TO_LCD_TIME)
         sensor_data = collect_all_data()
+
         try:
             variables = [
                 "temperature",
                 "pressure",
                 "humidity",
-                "noise_profile_amp",
-                "oxidising",
-                "reducing",
-                "nh3"
             ]
 
             units = [
                     "C",
                     "hPa",
                     "%",
-                    "db",
-                    "kO",
-                    "kO",
-                    "kO"
             ]
-            draw.rectangle((0, 0, WIDTH, HEIGHT), (0, 0, 0))
-            column_count = 2
-            row_count = (len(variables) / column_count)
             for i in range(len(variables)):
                 variable = variables[i]
                 data_value = sensor_data[variable]
                 unit = units[i]
-                x = x_offset + ((WIDTH // column_count) * (i // row_count))
-                y = y_offset + ((HEIGHT / row_count) * (i % row_count))
-                message = "{}: {:.1f} {}".format(variable[:4], data_value, unit)
-                lim = limits[i]
-                rgb = palette[0]
-                for j in range(len(lim)):
-                    if data_value > lim[j]:
-                        rgb = palette[j + 1]
-                draw.text((x, y), message, font=smallfont, fill=rgb)
-            st7735.display(img)
+                message = "{}: {:.1f} {}".format(variable[:1].capitalize(), data_value, unit)
+                logging.debug('Writing to LCD: {}'.format(message))
+                img = Image.new('RGB', (WIDTH, HEIGHT), color=(0, 0, 0))
+                draw = ImageDraw.Draw(img)
+                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 30)
+                size_x, size_y = draw.textsize(message, font)
+                while size_x > WIDTH:
+                    font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font.size - 2)
+                    size_x, size_y = draw.textsize(message, font)
+                draw.text((0, 0), message, font=font, fill=(255, 255, 255))
+                st7735.display(img)
+                time.sleep(WRITE_TO_LCD_TIME)
         except Exception as exception:
             logging.warning('Exception writing to LCD: {}'.format(exception))
 
