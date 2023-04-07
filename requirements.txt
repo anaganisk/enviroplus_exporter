@@ -10,3 +10,4 @@ SafecastPy
 adafruit-circuitpython-lc709203f
 python-periphery
 paho-mqtt>=1.6.1
+prometheus_async>=22.2.0

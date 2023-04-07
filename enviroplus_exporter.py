@@ -965,6 +965,7 @@ if __name__ == '__main__':
         get_light()
         get_gas()
         get_noise_profile()
+        time.sleep(1)
         if not args.enviro:
             get_gas()
             # get_particulates()
