@@ -49,7 +49,7 @@ except ImportError:
 
 logging.basicConfig(
     format='%(asctime)s.%(msecs)03d %(levelname)-8s %(message)s',
-    level=logging.DEBUG,
+    level=logging.INFO,
     handlers=[logging.FileHandler("enviroplus_exporter.log"),
               logging.StreamHandler()],
     datefmt='%Y-%m-%d %H:%M:%S')
@@ -965,9 +965,10 @@ if __name__ == '__main__':
         get_light()
         get_gas()
         get_noise_profile()
-        time.sleep(1)
+        
         if not args.enviro:
             get_gas()
             # get_particulates()
         if DEBUG:
             logging.info('Sensor data: {}'.format(collect_all_data()))
+        time.sleep(2)
