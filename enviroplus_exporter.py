@@ -10,6 +10,7 @@ import subprocess
 import serial
 from threading import Thread
 import json
+import uuid
 
 import board
 from influxdb_client import InfluxDBClient, Point
@@ -398,12 +399,11 @@ MQTT_USER = ""
 MQTT_PASS = ""
 MQTT_TOPIC = ""
 MQTT_POST_INTERVAL_MILLIS = 500.0
-mqtt_client = mqtt.Client(client_id="weather_mon", clean_session=True, userdata=None, protocol=mqtt.MQTTv311, transport="tcp")
 MQTT_CONNECTED = False
 def connect_mqtt():
     global mqtt_client
     logging.info(f"Connecting to MQTT server {MQTT_HOST} on port {MQTT_PORT}")
-    mqtt_client = mqtt.Client(client_id="weather_mon", clean_session=True, userdata=None, protocol=mqtt.MQTTv311, transport="tcp")
+    mqtt_client = mqtt.Client(client_id=f"enviroplus_{uuid.uuid4()}", clean_session=True, userdata=None, protocol=mqtt.MQTTv311, transport="tcp")
     mqtt_client.on_connect = on_connect
     mqtt_client.on_disconnect = on_disconnect
     mqtt_client.on_message = on_message
