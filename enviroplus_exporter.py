@@ -910,7 +910,7 @@ if __name__ == '__main__':
     parser.add_argument("-n", "--notecard", metavar='NOTECARD', type=str_to_bool, default='false', help="Post sensor data to Notehub.io via Notecard LTE [default: false]")
     parser.add_argument("-m", "--mqtt", metavar='MQTT', type=str, default=None, help="MQTT configuration localhost:1883:username:password:topic:interval [default: none]")
     parser.add_argument("-P", "--polling", metavar='POLLING', type=int, default=2, help="Polling interval in seconds, to fetch data from sensor [default: 2]")
-    parser.add_argument("-L", "--lcd", action='LCD', type=str_to_bool, default='false', help="Display sensor data on LCD [default: false]")
+    parser.add_argument("-L", "--lcd", metavar='LCD', type=str_to_bool, default='false', help="Display sensor data on LCD [default: false]")
     args = parser.parse_args()
 
     # Start up the server to expose the metrics.
@@ -972,7 +972,7 @@ if __name__ == '__main__':
         
         if not args.enviro:
             get_gas()
-            # get_particulates()
+            get_particulates()
         if DEBUG:
             logging.info('Sensor data: {}'.format(collect_all_data()))
         time.sleep(polling_interval)
